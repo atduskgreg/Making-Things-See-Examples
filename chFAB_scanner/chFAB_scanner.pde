@@ -7,7 +7,7 @@ SimpleOpenNI kinect;
 boolean scanning = false;
 
 int maxZ = 2000;
-int spacing = 1;
+int spacing = 3;
 
 UGeometry model;
 UVertexList vertexList;
