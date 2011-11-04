@@ -5,9 +5,9 @@ import SimpleOpenNI.*;
 SimpleOpenNI kinect;
 
 boolean scanning = false;
-boolean scanned = false;
 
 int maxZ = 2000;
+int spacing = 1;
 
 UGeometry model;
 UVertexList vertexList;
@@ -29,94 +29,80 @@ void draw() {
   translate(width/2, height/2, -1000);
   rotateX(radians(180));
 
-  if (scanned) {
-    lights();
-    fill(200);
-    model.draw(this);
-  } 
-  else {
+  if (scanning) {
+    model.beginShape(TRIANGLES);
+  }
 
-    if (scanning) {
-      model.beginShape(TRIANGLES);
-    }
+  PVector[] depthPoints = kinect.depthMapRealWorld();
 
-    PVector[] depthPoints = kinect.depthMapRealWorld();
-    int spacing = 3;
+  // cleanup pass
+  for (int y = 0; y < 480; y+=spacing) {
+    for (int x = 0; x < 640; x+= spacing) { 
+      int i = y * 640 + x;
+      PVector p = depthPoints[i];
+      // if the point is on the edge or if it has no depth
+      if (p.z < 10 || p.z > maxZ || y == 0 || y == 480 - spacing || x == 0 || x == 640 - spacing) {
+        // replace it with a point at the depth of the backplane (i.e. maxZ)
+        PVector realWorld = new PVector();
+        PVector projective = new PVector(x, y, maxZ);
+        // to get the point in the right place, we need to translate
+        // from x/y to realworld coordinates to match our other points:
+        kinect.convertProjectiveToRealWorld(projective, realWorld);
 
-    // cleanup pass
-    for (int y = 0; y < 480; y+=spacing) {
-      for (int x = 0; x < 640; x+= spacing) { 
-        int i = y * 640 + x;
-        PVector p = depthPoints[i];
-        if (p.z < 10 || p.z > maxZ || y == 480-spacing || y == 0 || x == 640 - spacing || x == 0) {
-          PVector realWorld = new PVector();
-          PVector projective = new PVector(x, y, maxZ);
-
-          kinect.convertProjectiveToRealWorld(projective, realWorld);
-
-          depthPoints[i] = realWorld;
-        }
+        depthPoints[i] = realWorld;
       }
     }
+  }
 
-    for (int y = 0; y < 480 - spacing; y+=spacing) {
-      for (int x = 0; x < 640 -spacing; x+= spacing) { 
-        int i = y * 640 + x;           
+  for (int y = 0; y < 480 - spacing; y+=spacing) {
+    for (int x = 0; x < 640 -spacing; x+= spacing) { 
+      int i = y * 640 + x;           
 
+      if (scanning) {
         int nw = i;
         int ne = nw + spacing;
         int sw = i + 640 * spacing;
         int se = sw + spacing;
 
-        if (scanning) {
+        if (!allZero(depthPoints[nw]) && !allZero(depthPoints[ne]) && !allZero(depthPoints[sw]) && !allZero(depthPoints[se])) {
 
-          if (!allZero(depthPoints[nw]) && !allZero(depthPoints[ne]) && !allZero(depthPoints[sw]) && !allZero(depthPoints[se])) {
-            
-        
-            
-            model.addFace(new UVec3(depthPoints[nw].x, depthPoints[nw].y, depthPoints[nw].z), 
-            new UVec3(depthPoints[ne].x, depthPoints[ne].y, depthPoints[ne].z), 
-            new UVec3(depthPoints[sw].x, depthPoints[sw].y, depthPoints[sw].z));
+          model.addFace(new UVec3(depthPoints[nw].x, depthPoints[nw].y, depthPoints[nw].z), 
+          new UVec3(depthPoints[ne].x, depthPoints[ne].y, depthPoints[ne].z), 
+          new UVec3(depthPoints[sw].x, depthPoints[sw].y, depthPoints[sw].z));
 
-            model.addFace(new UVec3(depthPoints[ne].x, depthPoints[ne].y, depthPoints[ne].z), 
-            new UVec3(depthPoints[se].x, depthPoints[se].y, depthPoints[se].z ), 
-            new UVec3(depthPoints[sw].x , depthPoints[sw].y, depthPoints[sw].z));
-          }
-        
+          model.addFace(new UVec3(depthPoints[ne].x, depthPoints[ne].y, depthPoints[ne].z), 
+          new UVec3(depthPoints[se].x, depthPoints[se].y, depthPoints[se].z ), 
+          new UVec3(depthPoints[sw].x, depthPoints[sw].y, depthPoints[sw].z));
+        }
       } 
-        else {
-          stroke(255);
-          PVector currentPoint = depthPoints[i];
-          if (currentPoint.z < maxZ) {
-            point(currentPoint.x, currentPoint.y, currentPoint.z);
-          }
+      else {
+        stroke(255);
+        PVector currentPoint = depthPoints[i];
+        if (currentPoint.z < maxZ) {
+          point(currentPoint.x, currentPoint.y, currentPoint.z);
         }
       }
     }
-   
+  }
+
+
+  if (scanning) {
+    model.calcBounds();
+    model.translate(0, 0, -maxZ);
+
+    float modelWidth = (model.bb.max.x - model.bb.min.x);
+    float modelHeight = (model.bb.max.y - model.bb.min.y);
+
+    UGeometry backing = Primitive.box(modelWidth/2, modelHeight/2, 10);
+    model.add(backing);
     
-    if (scanning) {
-      model.calcBounds();
-      model.translate(0,0,-maxZ);
-
-      
-      float modelWidth = (model.bb.max.x - model.bb.min.x) / 2;
-      float modelHeight = (model.bb.max.y - model.bb.min.y) / 2;
-      
-      UGeometry backing = Primitive.box(modelWidth,modelHeight,10);
-      
-
-      model.add(backing);
-      model.scale(0.01);
-      model.rotateY(radians(180));
-
-      model.toOrigin();
-      model.endShape();
-      scanning = false;
-      model.writeSTL(this, "scan_"+random(1000)+".stl");
-
-      scanned = true;
-    }
+    model.scale(0.01);
+    model.rotateY(radians(180));
+    model.toOrigin();
+    
+    model.endShape();
+    model.writeSTL(this, "scan_"+random(1000)+".stl");
+    scanning = false;
   }
 }
 
@@ -127,22 +113,15 @@ boolean allZero(PVector p) {
 
 void keyPressed() {
   println(maxZ);
-  if (key == '.') {
+  if (keyCode == UP) {
     maxZ += 100;
   }
-
-  else if (key ==',') {
+  if (keyCode == DOWN) {
     maxZ -= 100;
   }
-
-  else if (key == 'r') {
-    scanned = false;
-    scanning = false;
+  if (key == ' ') {
+    scanning = true;
     model.reset();
-  }
-
-  else {
-    scanning = !scanning;
   }
 }
 
